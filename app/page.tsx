@@ -1,27 +1,21 @@
-'use client'
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { CoreMessage } from 'ai';
 import { continueConversation } from './actions';
 import { readStreamableValue } from 'ai/rsc';
 import MessageList from '@/components/MessageList';
 import MessageInputForm from '@/components/MessageInputForm';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import Sidebar from '@/components/Sidebar';
 
 export default function Chat() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
   const [messages, setMessages] = useState<CoreMessage[]>([]);
   const [input, setInput] = useState('');
-  const [data, setData] = useState<any>();
   const [isListening, setIsListening] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
-
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      signIn(); // Redirects to the sign-in page if not authenticated
-    }
-  }, [status]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [chatId, setChatId] = useState<number | null>(null);
+  const userId = 1; // Assuming userId is known
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -48,6 +42,19 @@ export default function Chat() {
     }
   }, []);
 
+  useEffect(() => {
+    // Fetch existing chats and messages for the user if needed
+    fetch(`http://localhost:3000/users/${userId}/chats`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.length > 0) {
+          const lastChat = data[0]; // Get the most recent chat
+          setChatId(lastChat.id);
+          setMessages(lastChat.messages);
+        }
+      });
+  }, []);
+
   const startListening = () => {
     if (recognition) {
       recognition.start();
@@ -62,6 +69,30 @@ export default function Chat() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
+
+    // Check if chat exists, if not create a new chat
+    if (!chatId) {
+      try {
+        const chatResponse = await fetch(`http://localhost:3000/users/${userId}/chats`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: 'New Chat', // Optional: You can modify title
+          }),
+        });
+        const chatData = await chatResponse.json();
+        setChatId(chatData.id);
+      } catch (error) {
+        console.error('Error creating chat:', error);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // Now that we have the chatId, save the message
     const newMessages: CoreMessage[] = [
       ...messages,
       { content: input, role: 'user' },
@@ -72,8 +103,6 @@ export default function Chat() {
 
     try {
       const result = await continueConversation(newMessages);
-      setData(result.data);
-
       for await (const content of readStreamableValue(result.message)) {
         setMessages([
           ...newMessages,
@@ -83,46 +112,46 @@ export default function Chat() {
           },
         ]);
       }
+
+      // Save message to the backend
+      await fetch(`http://localhost:3000/users/${userId}/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: input,
+          answer: '', // Answer will be updated later
+        }),
+      });
+
     } catch (error) {
       console.error('Error during conversation:', error);
-      // Handle error appropriately (e.g., show a message to the user)
     }
+
+    setIsLoading(false);
   };
 
-  const userName = session?.user?.name;
-  const userProfileImage = session?.user?.image || 'https://example.com/default-profile.png';
-  const lastName = userName?.split(' ').slice(-1).join(' ') || 'User'; // Extract last name
-
   return (
-    <div className="flex flex-col w-full max-w-md h-screen mx-auto bg-gray-50">
-      {session ? (
-        <>
-          <header className="p-4 bg-green-500 text-white">
-            <h1 className="text-xl font-bold">Welcome, {lastName}!</h1>
-            <button
-              onClick={() => signOut()}
-              className="mt-2 px-4 py-2 bg-red-500 text-white rounded-md"
-            >
-              Logout
-            </button>
-          </header>
-          <MessageList
-            messages={messages}
-            userName={lastName} // Pass the last name
-            userProfileImage={userProfileImage} // Pass the user profile image URL
-          />
-          <MessageInputForm
-            input={input}
-            setInput={setInput}
-            isListening={isListening}
-            startListening={startListening}
-            stopListening={stopListening}
-            onSubmit={handleSubmit}
-          />
-        </>
-      ) : (
-        <p>Please sign in to access the chat.</p>
-      )}
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar messages={messages} />
+      <div className="flex-1 flex flex-col bg-white shadow-lg">
+        <header className="bg-green-600 text-white p-4 flex items-center justify-between shadow-md">
+          <h1 className="text-xl font-bold">Welcome!</h1>
+        </header>
+        <div className="flex-1 overflow-auto p-4">
+          <MessageList messages={messages} />
+        </div>
+        <MessageInputForm
+          input={input}
+          setInput={setInput}
+          isListening={isListening}
+          startListening={startListening}
+          stopListening={stopListening}
+          onSubmit={handleSubmit}
+          isLoading={isLoading}
+        />
+      </div>
     </div>
   );
 }
