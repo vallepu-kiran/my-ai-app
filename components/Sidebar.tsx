@@ -1,8 +1,8 @@
 import React from 'react';
 
 interface SidebarProps {
-  chats: { id: string; title: string }[]; // Array of chats
-  onSelectChat: (chatId: string) => void;
+  chats: { id: number; title: string }[]; // Array of chats
+  onSelectChat: (chatId: number) => void;
   onNewChat: () => void;
 }
 
@@ -33,8 +33,6 @@ const Sidebar: React.FC<SidebarProps> = ({ chats = [], onSelectChat, onNewChat }
           <li className="p-4 text-gray-400">No chats available</li>
         )}
       </ul>
-
-      
     </aside>
   );
 };

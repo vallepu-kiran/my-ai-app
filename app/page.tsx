@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CoreMessage } from 'ai';
 import { continueConversation } from './actions';
 import { readStreamableValue } from 'ai/rsc';
@@ -15,57 +15,73 @@ export default function Chat() {
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [chatId, setChatId] = useState<number | null>(null);
-  const userId = 1; // Assuming userId is known
+  const [chats, setChats] = useState<{ id: number; title: string }[]>([]);
+  const [isFetchingChats, setIsFetchingChats] = useState(false); // New state for loading chats
+  const userId = 3;
 
+  // Initialize Speech Recognition
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const isSpeechRecognitionSupported =
         'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
 
-      if (isSpeechRecognitionSupported) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognitionInstance = new SpeechRecognition();
-
-        recognitionInstance.onstart = () => setIsListening(true);
-        recognitionInstance.onend = () => setIsListening(false);
-        recognitionInstance.onresult = (event) => {
-          const transcript = event.results[0][0].transcript;
-          setInput(transcript);
-        };
-
-        setRecognition(recognitionInstance);
-
-        return () => {
-          recognitionInstance.stop();
-        };
+      if (!isSpeechRecognitionSupported) {
+        alert('Speech Recognition is not supported in this browser.');
+        return;
       }
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognitionInstance = new SpeechRecognition();
+
+      recognitionInstance.onstart = () => setIsListening(true);
+      recognitionInstance.onend = () => setIsListening(false);
+      recognitionInstance.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+      };
+
+      setRecognition(recognitionInstance);
+
+      return () => {
+        recognitionInstance.stop();
+      };
     }
   }, []);
 
+  // Fetch existing chats and messages for the user
   useEffect(() => {
-    // Fetch existing chats and messages for the user if needed
-    fetch(`http://localhost:3000/users/${userId}/chats`)
-      .then((response) => response.json())
-      .then((data) => {
+    const fetchChatData = async () => {
+      setIsFetchingChats(true);
+      try {
+        const response = await fetch(`http://localhost:3000/users/${userId}/chats`);
+        const data = await response.json();
+        setChats(data);
+
         if (data.length > 0) {
           const lastChat = data[0]; // Get the most recent chat
           setChatId(lastChat.id);
           setMessages(lastChat.messages);
         }
-      });
-  }, []);
+      } catch (error) {
+        console.error('Error fetching chats:', error);
+      }
+      setIsFetchingChats(false);
+    };
 
-  const startListening = () => {
+    fetchChatData();
+  }, [userId]);
+
+  const startListening = useCallback(() => {
     if (recognition) {
       recognition.start();
     }
-  };
+  }, [recognition]);
 
-  const stopListening = () => {
+  const stopListening = useCallback(() => {
     if (recognition) {
       recognition.stop();
     }
-  };
+  }, [recognition]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,11 +96,12 @@ export default function Chat() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            title: 'New Chat', // Optional: You can modify title
+            title: input || 'New Chat',
           }),
         });
         const chatData = await chatResponse.json();
         setChatId(chatData.id);
+        setChats([...chats, { id: chatData.id, title: input || 'New Chat' }]);
       } catch (error) {
         console.error('Error creating chat:', error);
         setIsLoading(false);
@@ -92,7 +109,6 @@ export default function Chat() {
       }
     }
 
-    // Now that we have the chatId, save the message
     const newMessages: CoreMessage[] = [
       ...messages,
       { content: input, role: 'user' },
@@ -103,17 +119,17 @@ export default function Chat() {
 
     try {
       const result = await continueConversation(newMessages);
+      let assistantResponse = '';
+
       for await (const content of readStreamableValue(result.message)) {
+        assistantResponse += content;
         setMessages([
           ...newMessages,
-          {
-            role: 'assistant',
-            content: content as string,
-          },
+          { role: 'assistant', content: content as string },
         ]);
       }
 
-      // Save message to the backend
+      // Save both the question and answer to the backend
       await fetch(`http://localhost:3000/users/${userId}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: {
@@ -121,10 +137,9 @@ export default function Chat() {
         },
         body: JSON.stringify({
           question: input,
-          answer: '', // Answer will be updated later
+          answer: assistantResponse,
         }),
       });
-
     } catch (error) {
       console.error('Error during conversation:', error);
     }
@@ -132,15 +147,61 @@ export default function Chat() {
     setIsLoading(false);
   };
 
+  const handleSelectChat = useCallback((selectedChatId: number) => {
+    const selectedChat = chats.find(chat => chat.id === selectedChatId);
+    if (selectedChat) {
+      setChatId(selectedChatId);
+      setMessages(selectedChat.messages);
+    }
+  }, [chats]);
+
+  const handleNewChat = async () => {
+    const newChatId = Date.now(); // Temporary unique ID
+    const newChatTitle = 'New Chat';
+    setChats([...chats, { id: newChatId, title: newChatTitle }]);
+    setChatId(newChatId); // Optimistic update
+
+    try {
+      const chatResponse = await fetch(`http://localhost:3000/users/${userId}/chats`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: newChatTitle }),
+      });
+      const chatData = await chatResponse.json();
+      setChats(prevChats =>
+        prevChats.map(chat =>
+          chat.id === newChatId ? { ...chat, id: chatData.id } : chat
+        )
+      );
+      setChatId(chatData.id); // Update with actual chat ID
+    } catch (error) {
+      console.error('Error creating new chat:', error);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-100">
-      <Sidebar messages={messages} />
+      <Sidebar 
+        chats={chats} 
+        onSelectChat={handleSelectChat} 
+        onNewChat={handleNewChat} 
+      />
       <div className="flex-1 flex flex-col bg-white shadow-lg">
         <header className="bg-green-600 text-white p-4 flex items-center justify-between shadow-md">
           <h1 className="text-xl font-bold">Welcome!</h1>
         </header>
         <div className="flex-1 overflow-auto p-4">
-          <MessageList messages={messages} />
+          {isFetchingChats ? (
+            <p>Loading chats...</p>
+          ) : (
+            <MessageList
+              messages={messages}
+              userName="Your Name"
+              userProfileImage="https://via.placeholder.com/150"
+            />
+          )}
         </div>
         <MessageInputForm
           input={input}
