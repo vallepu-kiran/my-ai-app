@@ -12,9 +12,11 @@ export async function continueConversation(messages: CoreMessage[]) {
   const result = await streamText({
     model: ollama('llama3.1'),  // Corrected model assignment
     messages,
+    
   });
   
   const stream = createStreamableValue(result.textStream);
+  
   
   return { message: stream.value };
 }

@@ -8,6 +8,12 @@ import MessageList from '@/components/MessageList';
 import MessageInputForm from '@/components/MessageInputForm';
 import Sidebar from '@/components/Sidebar';
 
+interface Chat {
+  id: number;
+  title: string;
+  messages: CoreMessage[];
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<CoreMessage[]>([]);
   const [input, setInput] = useState('');
@@ -15,11 +21,10 @@ export default function Chat() {
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [chatId, setChatId] = useState<number | null>(null);
-  const [chats, setChats] = useState<{ id: number; title: string }[]>([]);
-  const [isFetchingChats, setIsFetchingChats] = useState(false); // New state for loading chats
-  const userId = 3;
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [isFetchingChats, setIsFetchingChats] = useState(false);
+  const userId = 4;
 
-  // Initialize Speech Recognition
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const isSpeechRecognitionSupported =
@@ -35,7 +40,7 @@ export default function Chat() {
 
       recognitionInstance.onstart = () => setIsListening(true);
       recognitionInstance.onend = () => setIsListening(false);
-      recognitionInstance.onresult = (event) => {
+      recognitionInstance.onresult = (event: SpeechRecognitionEvent) => {
         const transcript = event.results[0][0].transcript;
         setInput(transcript);
       };
@@ -48,17 +53,16 @@ export default function Chat() {
     }
   }, []);
 
-  // Fetch existing chats and messages for the user
   useEffect(() => {
     const fetchChatData = async () => {
       setIsFetchingChats(true);
       try {
         const response = await fetch(`http://localhost:3000/users/${userId}/chats`);
-        const data = await response.json();
+        const data: Chat[] = await response.json();
         setChats(data);
 
         if (data.length > 0) {
-          const lastChat = data[0]; // Get the most recent chat
+          const lastChat = data.find(chat => chat.id === chatId) || data[0];
           setChatId(lastChat.id);
           setMessages(lastChat.messages);
         }
@@ -69,7 +73,7 @@ export default function Chat() {
     };
 
     fetchChatData();
-  }, [userId]);
+  }, [userId, chatId]);
 
   const startListening = useCallback(() => {
     if (recognition) {
@@ -87,7 +91,6 @@ export default function Chat() {
     e.preventDefault();
     setIsLoading(true);
 
-    // Check if chat exists, if not create a new chat
     if (!chatId) {
       try {
         const chatResponse = await fetch(`http://localhost:3000/users/${userId}/chats`, {
@@ -99,9 +102,18 @@ export default function Chat() {
             title: input || 'New Chat',
           }),
         });
+        if (!chatResponse.ok) {
+          throw new Error('Failed to create new chat');
+        }
         const chatData = await chatResponse.json();
         setChatId(chatData.id);
-        setChats([...chats, { id: chatData.id, title: input || 'New Chat' }]);
+        setChats(prevChats => {
+          const chatsArray = Array.isArray(prevChats) ? prevChats : [];
+          return [
+            ...chatsArray,
+            { id: chatData.id, title: input || 'New Chat', messages: [] }
+          ];
+        });
       } catch (error) {
         console.error('Error creating chat:', error);
         setIsLoading(false);
@@ -129,7 +141,6 @@ export default function Chat() {
         ]);
       }
 
-      // Save both the question and answer to the backend
       await fetch(`http://localhost:3000/users/${userId}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: {
@@ -137,7 +148,7 @@ export default function Chat() {
         },
         body: JSON.stringify({
           question: input,
-          answer: assistantResponse,
+          answer: assistantResponse.trim(),
         }),
       });
     } catch (error) {
@@ -146,36 +157,49 @@ export default function Chat() {
 
     setIsLoading(false);
   };
+  
 
-  const handleSelectChat = useCallback((selectedChatId: number) => {
-    const selectedChat = chats.find(chat => chat.id === selectedChatId);
-    if (selectedChat) {
-      setChatId(selectedChatId);
-      setMessages(selectedChat.messages);
+  const handleSelectChat = useCallback(async (selectedChatId: number) => {
+    setChatId(selectedChatId);
+    setMessages([]);
+
+    try {
+      const response = await fetch(`http://localhost:3000/users/${userId}/chats/${selectedChatId}/messages`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch messages for the selected chat');
+      }
+      const data = await response.json();
+      setMessages(data);
+    } catch (error) {
+      console.error('Error fetching messages:', error);
     }
-  }, [chats]);
+  }, [userId]);
 
   const handleNewChat = async () => {
-    const newChatId = Date.now(); // Temporary unique ID
-    const newChatTitle = 'New Chat';
-    setChats([...chats, { id: newChatId, title: newChatTitle }]);
-    setChatId(newChatId); // Optimistic update
-
     try {
       const chatResponse = await fetch(`http://localhost:3000/users/${userId}/chats`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title: newChatTitle }),
+        body: JSON.stringify({ title: input || 'New Chat' }),
       });
+      if (!chatResponse.ok) {
+        throw new Error('Failed to create new chat');
+      }
       const chatData = await chatResponse.json();
-      setChats(prevChats =>
-        prevChats.map(chat =>
-          chat.id === newChatId ? { ...chat, id: chatData.id } : chat
-        )
-      );
-      setChatId(chatData.id); // Update with actual chat ID
+
+      setChats(prevChats => {
+        const chatsArray = Array.isArray(prevChats) ? prevChats : [];
+        return [
+          ...chatsArray,
+          { id: chatData.id, title: input || 'New Chat', messages: [] }
+        ];
+      });
+
+      setChatId(chatData.id);
+      setMessages([]);
+      setInput('');
     } catch (error) {
       console.error('Error creating new chat:', error);
     }
@@ -183,14 +207,14 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      <Sidebar 
-        chats={chats} 
-        onSelectChat={handleSelectChat} 
-        onNewChat={handleNewChat} 
+      <Sidebar
+        chats={chats}
+        onSelectChat={handleSelectChat}
+        onNewChat={handleNewChat}
       />
-      <div className="flex-1 flex flex-col bg-white shadow-lg">
-        <header className="bg-green-600 text-white p-4 flex items-center justify-between shadow-md">
-          <h1 className="text-xl font-bold">Welcome!</h1>
+      <div className="flex-1 flex flex-col bg-gray-700 shadow-lg">
+        <header className="bg-gray-700 text-white p-4 flex items-center justify-between shadow-md">
+          <h1 className="text-xl font-bold">Ollama 3.1</h1>
         </header>
         <div className="flex-1 overflow-auto p-4">
           {isFetchingChats ? (
