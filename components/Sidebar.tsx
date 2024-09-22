@@ -1,9 +1,10 @@
 import React from 'react';
+import { categorizeChats } from '@/app/utils/chatHelpers';
 
 interface Chat {
   id: number;
   title: string;
-  
+  created_at: string; 
 }
 
 interface SidebarProps {
@@ -14,9 +15,10 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ chats, onSelectChat, onNewChat }) => {
   const chatList = chats.data || [];
-
-
-  const reversedChatList = [...chatList].reverse();
+  
+  // Sort chats by created_at in descending order
+  const sortedChats = chatList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const categorizedChats = categorizeChats(sortedChats);
 
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col">
@@ -24,7 +26,7 @@ const Sidebar: React.FC<SidebarProps> = ({ chats, onSelectChat, onNewChat }) => 
         <h2 className="text-lg font-bold">Chats</h2>
         <button
           onClick={onNewChat}
-          className=" px-2 py-1 rounded-md transition duration-200"
+          className="px-2 py-1 rounded-md transition duration-200"
           aria-label="New Chat"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="icon-xl-heavy">
@@ -32,18 +34,42 @@ const Sidebar: React.FC<SidebarProps> = ({ chats, onSelectChat, onNewChat }) => 
           </svg>
         </button>
       </header>
-      <ul className="flex-1 overflow-auto">
-        {reversedChatList.length > 0 ? (
-          reversedChatList.map((chat) => (
-            <li
-              key={chat.id}
-              className="p-4 cursor-pointer hover:bg-gray-700"
-              onClick={() => onSelectChat(chat.id)}
-              aria-label={`Select chat: ${chat.title}`}
-            >
-              {chat.title}
-            </li>
-          ))
+      <ul className="flex-1 overflow-y-auto">
+        {Object.keys(categorizedChats).length ? (
+          <>
+            {categorizedChats['Today'] && (
+              <div>
+                <h3 className="p-4 bg-gray-800 text-gray-400 text-sm font-semibold">Today</h3>
+                {categorizedChats['Today'].map((chat) => (
+                  <li
+                    key={chat.id}
+                    className="p-4 cursor-pointer hover:bg-gray-700"
+                    onClick={() => onSelectChat(chat.id)}
+                    aria-label={`Select chat: ${chat.title}`}
+                  >
+                    {chat.title.substring(0, 15)}{chat.title.length > 15 ? '...' : ''}
+                  </li>
+                ))}
+              </div>
+            )}
+            {Object.entries(categorizedChats).map(([category, chats]) => (
+              category !== 'Today' && (
+                <div key={category}>
+                  <h3 className="p-4 bg-gray-800 text-gray-400 text-sm font-semibold">{category}</h3>
+                  {chats.map((chat) => (
+                    <li
+                      key={chat.id}
+                      className="p-4 cursor-pointer hover:bg-gray-700"
+                      onClick={() => onSelectChat(chat.id)}
+                      aria-label={`Select chat: ${chat.title}`}
+                    >
+                      {chat.title.substring(0, 15)}{chat.title.length > 15 ? '...' : ''}
+                    </li>
+                  ))}
+                </div>
+              )
+            ))}
+          </>
         ) : (
           <li className="p-4 text-center text-gray-400">No chats available</li>
         )}

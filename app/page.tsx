@@ -23,7 +23,8 @@ export default function Chat() {
   const [chatId, setChatId] = useState<number | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [isFetchingChats, setIsFetchingChats] = useState(false);
-  const userId = 4;
+  const [hasMore, setHasMore] = useState(true);
+  const userId = 1;
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -107,13 +108,10 @@ export default function Chat() {
         }
         const chatData = await chatResponse.json();
         setChatId(chatData.id);
-        setChats(prevChats => {
-          const chatsArray = Array.isArray(prevChats) ? prevChats : [];
-          return [
-            ...chatsArray,
-            { id: chatData.id, title: input || 'New Chat', messages: [] }
-          ];
-        });
+        setChats(prevChats => [
+          ...prevChats,
+          { id: chatData.id, title: input || 'New Chat', messages: [] }
+        ]);
       } catch (error) {
         console.error('Error creating chat:', error);
         setIsLoading(false);
@@ -135,8 +133,8 @@ export default function Chat() {
 
       for await (const content of readStreamableValue(result.message)) {
         assistantResponse += content;
-        setMessages([
-          ...newMessages,
+        setMessages(prevMessages => [
+          ...prevMessages,
           { role: 'assistant', content: content as string },
         ]);
       }
@@ -157,7 +155,6 @@ export default function Chat() {
 
     setIsLoading(false);
   };
-  
 
   const handleSelectChat = useCallback(async (selectedChatId: number) => {
     setChatId(selectedChatId);
@@ -170,10 +167,29 @@ export default function Chat() {
       }
       const data = await response.json();
       setMessages(data);
+      setHasMore(data.length > 0); // Update hasMore based on fetched messages
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
   }, [userId]);
+
+  const fetchMoreData = async () => {
+    if (!chatId) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/users/${userId}/chats/${chatId}/messages?offset=${messages.length}`);
+      if (!response.ok) throw new Error('Failed to fetch more messages');
+      const newMessages: CoreMessage[] = await response.json();
+
+      if (newMessages.length === 0) {
+        setHasMore(false);
+      } else {
+        setMessages(prevMessages => [...newMessages, ...prevMessages]);
+      }
+    } catch (error) {
+      console.error('Error fetching more messages:', error);
+    }
+  };
 
   const handleNewChat = async () => {
     try {
@@ -189,13 +205,10 @@ export default function Chat() {
       }
       const chatData = await chatResponse.json();
 
-      setChats(prevChats => {
-        const chatsArray = Array.isArray(prevChats) ? prevChats : [];
-        return [
-          ...chatsArray,
-          { id: chatData.id, title: input || 'New Chat', messages: [] }
-        ];
-      });
+      setChats(prevChats => [
+        ...prevChats,
+        { id: chatData.id, title: input || 'New Chat', messages: [] }
+      ]);
 
       setChatId(chatData.id);
       setMessages([]);
@@ -224,6 +237,8 @@ export default function Chat() {
               messages={messages}
               userName="Your Name"
               userProfileImage="https://via.placeholder.com/150"
+              fetchMoreData={fetchMoreData}
+              hasMore={hasMore}
             />
           )}
         </div>
