@@ -23,7 +23,7 @@ export default function Chat() {
   const [chatId, setChatId] = useState<number | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [isFetchingChats, setIsFetchingChats] = useState(false);
-  const userId = 4;
+  const userId = 1;
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

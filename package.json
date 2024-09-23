@@ -8,14 +8,23 @@
     "start": "next start",
     "lint": "next lint"
   },
+  "compilerOptions": {
+    "target": "es2015",
+    "downlevelIteration": true
+  },
   "dependencies": {
     "@heroicons/react": "^2.1.5",
+    "@types/react-window": "^1.8.8",
     "ai": "^3.3.33",
     "next": "14.2.10",
     "next-auth": "^4.24.7",
     "ollama-ai-provider": "^0.14.0",
     "react": "^18",
     "react-dom": "^18",
+    "react-infinite-scroll-component": "^6.1.0",
+    "react-virtuoso": "^4.10.4",
+    "react-window": "^1.8.10",
+    "react-window-infinite-loader": "^1.0.9",
     "zod": "^3.23.8"
   },
   "devDependencies": {
